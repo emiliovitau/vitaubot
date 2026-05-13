@@ -1,0 +1,33 @@
+name: VitauBot
+
+on:
+  schedule:
+    - cron: '0 15 * * 1-5'   # 9AM México (UTC-6) = 15:00 UTC
+    - cron: '0 19 * * 1-5'   # 1PM México (UTC-6) = 19:00 UTC
+  workflow_dispatch:           # permite correrlo manual desde GitHub
+
+jobs:
+  corte:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install pandas requests openpyxl gdown google-api-python-client google-auth
+
+      - name: Crear carpeta archivos
+        run: mkdir -p archivos
+
+      - name: Descargar Excel de Google Drive
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python download_ml.py
+
+      - name: Correr VitauBot
+        run: python corte_manual.py
