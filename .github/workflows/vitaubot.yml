@@ -2,9 +2,9 @@ name: VitauBot
 
 on:
   schedule:
-    - cron: '0 15 * * 1-5'   # 9AM México (UTC-6) = 15:00 UTC
-    - cron: '0 19 * * 1-5'   # 1PM México (UTC-6) = 19:00 UTC
-  workflow_dispatch:           # permite correrlo manual desde GitHub
+    - cron: '0 14 * * 1-5'   # 8AM México (UTC-6) — anticipando delay de GitHub
+    - cron: '0 18 * * 1-5'   # 12PM México (UTC-6) — anticipando delay de GitHub
+  workflow_dispatch:
 
 jobs:
   corte:
