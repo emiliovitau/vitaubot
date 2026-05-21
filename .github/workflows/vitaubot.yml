@@ -2,8 +2,7 @@ name: VitauBot
 
 on:
   schedule:
-    - cron: '0 14 * * 1-5'   # 8AM México (UTC-6) — anticipando delay de GitHub
-    - cron: '0 18 * * 1-5'   # 12PM México (UTC-6) — anticipando delay de GitHub
+   
   workflow_dispatch:
 
 jobs:
