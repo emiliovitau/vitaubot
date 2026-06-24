@@ -25,7 +25,7 @@ jobs:
           METABASE_URL: ${{ secrets.METABASE_URL }}
           METABASE_USER: ${{ secrets.METABASE_USER }}
           METABASE_PASS: ${{ secrets.METABASE_PASS }}
-          METABASE_CARD: "4552"
+          METABASE_CARD: "4556"
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
           SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
           SNAPSHOT_FILE: snapshot_buybox.json
@@ -44,4 +44,3 @@ jobs:
           git add snapshot_buybox.json
           git commit -m "snapshot buybox $(date +%F)" || echo "sin cambios"
           git push
-          
