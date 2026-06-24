@@ -61,13 +61,14 @@ def cargar_metabase():
     token = s.json().get("id")
     if not token:
         sys.exit(f"ERROR: no se pudo autenticar en Metabase: {s.text[:200]}")
-    q = requests.post(f"{url}/api/card/{card}/query",
-                      headers={"X-Metabase-Session": token}, json={}, timeout=120)
-    data = q.json().get("data", {})
-    cols = [c["name"] for c in data.get("cols", [])]
-    rows = data.get("rows", [])
+    # /query/json devuelve TODAS las filas (sin el tope de 2000 de /query)
+    q = requests.post(f"{url}/api/card/{card}/query/json",
+                      headers={"X-Metabase-Session": token}, json={}, timeout=300)
+    rows = q.json()
+    if not isinstance(rows, list):
+        sys.exit(f"ERROR: respuesta inesperada de Metabase: {str(rows)[:200]}")
     print(f"Metabase card {card}: {len(rows)} filas")
-    return pd.DataFrame(rows, columns=cols)
+    return pd.DataFrame(rows)
 
 
 def cargar_export(path):
@@ -170,4 +171,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
