@@ -156,7 +156,8 @@ def enviar_slack(texto):
     r = requests.post("https://slack.com/api/chat.postMessage",
                       headers={"Authorization": f"Bearer {token}"},
                       json={"channel": canal, "text": texto, "mrkdwn": True}, timeout=20)
-    print(f"Slack: ok={r.json().get('ok')}")
+    j = r.json()
+    print(f"Slack: ok={j.get('ok')}" + ("" if j.get("ok") else f" · error={j.get('error')}"))
 
 
 def subir_excel_slack(path, titulo):
