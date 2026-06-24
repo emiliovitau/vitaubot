@@ -1,0 +1,47 @@
+name: buybox-diario
+
+on:
+  schedule:
+    - cron: "0 14 * * 1-5"   # 8:00 AM MX (lun-vie), igual que VitauBot
+  workflow_dispatch:           # boton manual
+
+permissions:
+  contents: write              # para persistir el snapshot entre corridas
+
+jobs:
+  buybox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install pandas openpyxl requests
+
+      - name: Monitor Buy Box
+        env:
+          METABASE_URL: ${{ secrets.METABASE_URL }}
+          METABASE_USER: ${{ secrets.METABASE_USER }}
+          METABASE_PASS: ${{ secrets.METABASE_PASS }}
+          METABASE_CARD: "4552"
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+          SNAPSHOT_FILE: snapshot_buybox.json
+        run: python vitau_buybox_diario.py
+
+      - name: Guardar Excel del dia
+        uses: actions/upload-artifact@v4
+        with:
+          name: acciones-buybox
+          path: acciones_buybox_*.xlsx
+
+      - name: Persistir snapshot (para el diff de manana)
+        run: |
+          git config user.name "buybox-bot"
+          git config user.email "bot@vitau.local"
+          git add snapshot_buybox.json
+          git commit -m "snapshot buybox $(date +%F)" || echo "sin cambios"
+          git push
+          
