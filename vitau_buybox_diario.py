@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 """
-vitau_buybox_diario.py — Monitor diario del Buy Box de Mercado Libre (Vitau).
+vitau_buybox_diario.py — Monitor diario de precios / Buy Box de Mercado Libre (Vitau).
 
-Jala la card 4552 (rendimiento-en-ml) DIRECTO de Metabase (igual que VitauBot
-con la 2203), calcula las acciones de precio del dia, compara contra el snapshot
-de ayer y publica el digest en Slack. Sin archivos, sin Drive.
+Jala la card 4556 (publicaciones-meli-snapshot-mas-reciente) DIRECTO de Metabase.
+Fati ya calcula la decision dentro del query: la columna accion_precio dice
+OK / Bajar precio / Subir precio, y precio_sugerido es el precio apto por margenes.
+El bot solo lee esa decision, resume en Slack (Top por ventas) y deja la lista
+completa en un Excel.
 
 Uso en GitHub Actions:
   python vitau_buybox_diario.py
-Modo prueba con un export local (sin tocar Metabase):
-  python vitau_buybox_diario.py --export rendimiento_en_ml_XXXX.xlsx
+Modo prueba con un export local:
+  python vitau_buybox_diario.py --export snapshot.xlsx
 
-Variables de entorno (todas como GitHub Secrets, NUNCA en el codigo):
-  METABASE_URL    ej. https://analytics.vitau.mx
-  METABASE_USER   usuario de Metabase (idealmente cuenta de servicio, no la de Fati)
-  METABASE_PASS   contrasena de Metabase
-  METABASE_CARD   id de la card (default 4552)
-  SLACK_TOKEN     token del bot de Slack (xoxb-...)
-  SLACK_CHANNEL   id del canal (ej. C040H7TV6JG)
-  SNAPSHOT_FILE   ruta del json de tracking (default snapshot_buybox.json)
+Variables de entorno (GitHub Secrets):
+  METABASE_URL, METABASE_USER, METABASE_PASS, METABASE_CARD (default 4556)
+  SLACK_TOKEN, SLACK_CHANNEL
+  SNAPSHOT_FILE (default snapshot_buybox.json)
+  TOP_N (cuantas filas mostrar por bloque en Slack, default 12)
 """
 
 import argparse
@@ -31,19 +30,23 @@ from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import requests
 
-GANANDO = "Ganando buy box"
-PUEDE_BAJAR = "Puede bajar sin perder margen"
+ACTIVO = "Activo"
+GANANDO = "Ganando"
+A_BAJAR = "Bajar precio"
+A_SUBIR = "Subir precio"
 
-COL_ID = "ID listing ML"
-COL_PROD = "Producto"
-COL_ESTADO = "Estado buy box"
-COL_NUESTRO = "Nuestro precio"
-COL_GANADOR = "Precio del ganador"
-COL_OBJETIVO = "Precio sugerido para ganar"
-COL_BAJAR = "Cuánto debemos bajar ($)"
-COL_PISO = "Precio mínimo (con margen)"
-COL_PUEDE = "¿Puede ganar buybox?"
-REQUERIDAS = [COL_ID, COL_ESTADO, COL_PUEDE, COL_OBJETIVO, COL_BAJAR, COL_PISO]
+COL_ID = "item_id"
+COL_PROD = "titulo"
+COL_ESTADO = "estado"
+COL_BB = "buybox_status"
+COL_ACTUAL = "precio_actual"
+COL_SUGERIDO = "precio_sugerido"
+COL_ACCION = "accion_precio"
+COL_STOCK = "stock"
+COL_VENTAS = "ventas_totales"
+COL_URL = "url"
+COL_GANADOR = "precio_ganador_competencia"
+REQUERIDAS = [COL_ID, COL_PROD, COL_ESTADO, COL_ACCION, COL_ACTUAL, COL_SUGERIDO]
 
 
 def money(x):
@@ -54,7 +57,7 @@ def money(x):
 
 def cargar_metabase():
     url = os.environ["METABASE_URL"]
-    card = os.environ.get("METABASE_CARD", "4552")
+    card = os.environ.get("METABASE_CARD", "4556")
     s = requests.post(f"{url}/api/session",
                       json={"username": os.environ["METABASE_USER"],
                             "password": os.environ["METABASE_PASS"]}, timeout=30)
@@ -80,38 +83,47 @@ def validar(df):
     if faltan:
         sys.exit(f"ERROR: faltan columnas {faltan}.\nColumnas recibidas: {list(df.columns)}")
     df[COL_ID] = df[COL_ID].astype(str).str.strip()
-    for c in (COL_NUESTRO, COL_GANADOR, COL_OBJETIVO, COL_BAJAR, COL_PISO):
+    for c in (COL_ACTUAL, COL_SUGERIDO, COL_VENTAS, COL_STOCK, COL_GANADOR):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
 
 
-def calcular_acciones(df):
-    no_gana = df[COL_ESTADO] != GANANDO
-    puede = df[COL_PUEDE] == PUEDE_BAJAR
-    mueve = df[COL_BAJAR].fillna(0) > 0
-    seguro = df[COL_OBJETIVO].fillna(-1) >= df[COL_PISO].fillna(1e12)
-    acc = df[no_gana & puede & mueve & seguro].sort_values(COL_BAJAR, ascending=False)
-    escalar = df[no_gana & puede & mueve & ~seguro]
-    return acc, escalar
+def acciones(df):
+    """Solo publicaciones activas; ordenadas por ventas (lo que mas urge primero)."""
+    act = df[df[COL_ESTADO] == ACTIVO]
+    orden = COL_VENTAS if COL_VENTAS in df.columns else COL_ACTUAL
+    bajar = act[act[COL_ACCION] == A_BAJAR].sort_values(orden, ascending=False)
+    subir = act[act[COL_ACCION] == A_SUBIR].sort_values(orden, ascending=False)
+    return act, bajar, subir
 
 
 def tracking(fecha, df):
     path = os.environ.get("SNAPSHOT_FILE", "snapshot_buybox.json")
-    ganan_hoy = sorted(df.loc[df[COL_ESTADO] == GANANDO, COL_ID].astype(str))
+    ganan_hoy = sorted(df.loc[df.get(COL_BB) == GANANDO, COL_ID].astype(str)) if COL_BB in df.columns else []
     perdidos = ganados = None
     if os.path.exists(path):
         prev = json.load(open(path))
         if prev.get("fecha") != fecha:
-            ayer = set(prev.get("ganando", []))
-            hoy = set(ganan_hoy)
+            ayer, hoy = set(prev.get("ganando", [])), set(ganan_hoy)
             perdidos, ganados = ayer - hoy, hoy - ayer
     json.dump({"fecha": fecha, "ganando": ganan_hoy}, open(path, "w"))
     return perdidos, ganados, len(ganan_hoy)
 
 
-def construir_mensaje(fecha, n, acc, escalar, perdidos, ganados, total_gana):
-    L = [f"*Buy Box ML — {fecha}*", f"Publicaciones: {n:,} · Ganando: {total_gana}"]
+def fmt_filas(dfx, n):
+    L = []
+    for _, r in dfx.head(n).iterrows():
+        prod = str(r[COL_PROD])[:46]
+        a, sug = money(r[COL_ACTUAL]), money(r[COL_SUGERIDO])
+        ventas = f" · {int(r[COL_VENTAS])} ventas" if COL_VENTAS in dfx.columns and pd.notna(r[COL_VENTAS]) else ""
+        link = f"<{r[COL_URL]}|{prod}>" if COL_URL in dfx.columns and pd.notna(r.get(COL_URL)) else prod
+        L.append(f"• {link} — ${a:,.2f} → *${sug:,.2f}*{ventas}")
+    return L
+
+
+def construir_mensaje(fecha, act, bajar, subir, perdidos, ganados, total_gana, top_n):
+    L = [f"*Buy Box ML — {fecha}*", f"Publicaciones activas: {len(act):,} · Ganando: {total_gana}"]
     if perdidos is not None:
         if perdidos:
             L.append(f":small_red_triangle_down: Perdimos el Buy Box en {len(perdidos)} (ayer ganábamos)")
@@ -119,16 +131,19 @@ def construir_mensaje(fecha, n, acc, escalar, perdidos, ganados, total_gana):
             L.append(f":white_check_mark: Recuperamos {len(ganados)}")
         if not perdidos and not ganados:
             L.append("Sin cambios de Buy Box vs ayer")
+
     L.append("")
-    if acc.empty:
-        L.append(":tada: *Sin acciones de precio hoy.* Todo lo ganable ya está al precio correcto.")
-    else:
-        L.append(f"*Acciones de precio hoy: {len(acc)}*  (bajar sin perder margen)")
-        for _, r in acc.iterrows():
-            L.append(f"• {str(r[COL_PROD])[:42]} — ${money(r[COL_NUESTRO]):,.2f} → "
-                     f"*${money(r[COL_OBJETIVO]):,.2f}* (piso ${money(r[COL_PISO]):,.2f})")
-    if not escalar.empty:
-        L.append(f"\n:warning: *{len(escalar)} para escalar a Fati* — ganar implica bajar del margen mínimo.")
+    if bajar.empty and subir.empty:
+        L.append(":tada: *Todos los precios están en su valor óptimo.* Sin acciones hoy.")
+        return "\n".join(L)
+
+    if not bajar.empty:
+        L.append(f":arrow_down: *Bajar precio: {len(bajar)}*  (Top {min(top_n, len(bajar))} por ventas)")
+        L += fmt_filas(bajar, top_n)
+    if not subir.empty:
+        L.append(f"\n:arrow_up: *Subir precio: {len(subir)}*  (margen sin capturar — Top {min(5, len(subir))})")
+        L += fmt_filas(subir, 5)
+    L.append(f"\n_Lista completa de {len(bajar) + len(subir)} cambios en el Excel (abajo)._")
     return "\n".join(L)
 
 
@@ -144,13 +159,38 @@ def enviar_slack(texto):
     print(f"Slack: ok={r.json().get('ok')}")
 
 
-def escribir_excel(salida, acc, escalar):
-    cols = [c for c in (COL_ID, COL_PROD, COL_NUESTRO, COL_GANADOR, COL_OBJETIVO,
-                        COL_BAJAR, COL_PISO, COL_ESTADO) if c in acc.columns]
+def subir_excel_slack(path, titulo):
+    """Sube el Excel al canal (best-effort). Requiere scope files:write en el bot.
+    Si falla, el mensaje de texto ya se envió y el Excel queda en los artifacts."""
+    token, canal = os.environ.get("SLACK_TOKEN"), os.environ.get("SLACK_CHANNEL")
+    if not token or not canal:
+        return
+    try:
+        size = os.path.getsize(path)
+        r1 = requests.get("https://slack.com/api/files.getUploadURLExternal",
+                          headers={"Authorization": f"Bearer {token}"},
+                          params={"filename": os.path.basename(path), "length": size}, timeout=20).json()
+        if not r1.get("ok"):
+            print(f"Slack upload: {r1.get('error')} (revisa scope files:write)")
+            return
+        with open(path, "rb") as fh:
+            requests.post(r1["upload_url"], files={"file": fh}, timeout=60)
+        r3 = requests.post("https://slack.com/api/files.completeUploadExternal",
+                           headers={"Authorization": f"Bearer {token}"},
+                           json={"files": [{"id": r1["file_id"], "title": titulo}],
+                                 "channel_id": canal}, timeout=20).json()
+        print(f"Slack archivo: ok={r3.get('ok')}")
+    except Exception as e:
+        print(f"Slack upload falló (no bloqueante): {e}")
+
+
+def escribir_excel(salida, bajar, subir):
+    cols = [c for c in (COL_ID, COL_PROD, COL_ACTUAL, COL_SUGERIDO, COL_GANADOR,
+                        COL_STOCK, COL_VENTAS, COL_BB, COL_URL) if c in bajar.columns]
     with pd.ExcelWriter(salida, engine="openpyxl") as xw:
-        acc[cols].to_excel(xw, sheet_name="Acciones precio", index=False)
-        if not escalar.empty:
-            escalar[cols].to_excel(xw, sheet_name="Escalar a Fati", index=False)
+        (bajar[cols] if not bajar.empty else pd.DataFrame(columns=cols)).to_excel(xw, sheet_name="Bajar precio", index=False)
+        if not subir.empty:
+            subir[cols].to_excel(xw, sheet_name="Subir precio", index=False)
     print(f"Excel: {salida}")
 
 
@@ -162,11 +202,15 @@ def main():
 
     df = cargar_export(args.export) if args.export else cargar_metabase()
     df = validar(df)
-    acc, escalar = calcular_acciones(df)
+    act, bajar, subir = acciones(df)
     perdidos, ganados, total_gana = tracking(args.fecha, df)
-    texto = construir_mensaje(args.fecha, len(df), acc, escalar, perdidos, ganados, total_gana)
+    top_n = int(os.environ.get("TOP_N", "12"))
+    texto = construir_mensaje(args.fecha, act, bajar, subir, perdidos, ganados, total_gana, top_n)
+    salida = f"acciones_buybox_{args.fecha}.xlsx"
+    escribir_excel(salida, bajar, subir)
     enviar_slack(texto)
-    escribir_excel(f"acciones_buybox_{args.fecha}.xlsx", acc, escalar)
+    if not (bajar.empty and subir.empty):
+        subir_excel_slack(salida, f"Acciones de precio {args.fecha}")
 
 
 if __name__ == "__main__":
