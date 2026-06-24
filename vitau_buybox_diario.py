@@ -36,6 +36,7 @@ A_BAJAR = "Bajar precio"
 A_SUBIR = "Subir precio"
 
 COL_ID = "item_id"
+COL_EAN = "ean"
 COL_PROD = "titulo"
 COL_ESTADO = "estado"
 COL_BB = "buybox_status"
@@ -75,7 +76,7 @@ def cargar_metabase():
 
 
 def cargar_export(path):
-    return pd.read_excel(path, dtype={COL_ID: str})
+    return pd.read_excel(path, dtype={COL_ID: str, COL_EAN: str})
 
 
 def validar(df):
@@ -83,6 +84,8 @@ def validar(df):
     if faltan:
         sys.exit(f"ERROR: faltan columnas {faltan}.\nColumnas recibidas: {list(df.columns)}")
     df[COL_ID] = df[COL_ID].astype(str).str.strip()
+    if COL_EAN in df.columns:
+        df[COL_EAN] = df[COL_EAN].apply(lambda v: "" if pd.isna(v) else str(v).split(".")[0].strip())
     for c in (COL_ACTUAL, COL_SUGERIDO, COL_VENTAS, COL_STOCK, COL_GANADOR):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -117,8 +120,9 @@ def fmt_filas(dfx, n):
         prod = str(r[COL_PROD])[:46]
         a, sug = money(r[COL_ACTUAL]), money(r[COL_SUGERIDO])
         ventas = f" · {int(r[COL_VENTAS])} ventas" if COL_VENTAS in dfx.columns and pd.notna(r[COL_VENTAS]) else ""
+        sku = f" · SKU {r[COL_EAN]}" if COL_EAN in dfx.columns and str(r.get(COL_EAN) or "").strip() else ""
         link = f"<{r[COL_URL]}|{prod}>" if COL_URL in dfx.columns and pd.notna(r.get(COL_URL)) else prod
-        L.append(f"• {link} — ${a:,.2f} → *${sug:,.2f}*{ventas}")
+        L.append(f"• {link} — ${a:,.2f} → *${sug:,.2f}*{sku}{ventas}")
     return L
 
 
@@ -186,7 +190,7 @@ def subir_excel_slack(path, titulo):
 
 
 def escribir_excel(salida, bajar, subir):
-    cols = [c for c in (COL_ID, COL_PROD, COL_ACTUAL, COL_SUGERIDO, COL_GANADOR,
+    cols = [c for c in (COL_ID, COL_EAN, COL_PROD, COL_ACTUAL, COL_SUGERIDO, COL_GANADOR,
                         COL_STOCK, COL_VENTAS, COL_BB, COL_URL) if c in bajar.columns]
     with pd.ExcelWriter(salida, engine="openpyxl") as xw:
         (bajar[cols] if not bajar.empty else pd.DataFrame(columns=cols)).to_excel(xw, sheet_name="Bajar precio", index=False)
