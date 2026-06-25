@@ -62,13 +62,25 @@ def cargar_metabase():
     s = requests.post(f"{url}/api/session",
                       json={"username": os.environ["METABASE_USER"],
                             "password": os.environ["METABASE_PASS"]}, timeout=30)
-    token = s.json().get("id")
+    # Metabase puede responder vacío/HTML si está caído o si las credenciales fallan
+    try:
+        token = s.json().get("id")
+    except ValueError:
+        token = None
     if not token:
-        sys.exit(f"ERROR: no se pudo autenticar en Metabase: {s.text[:200]}")
+        msg = (f":x: *Buy Box ML* — no pude entrar a Metabase (HTTP {s.status_code}). "
+               f"Reviso credenciales (¿se rotó la contraseña?) o si Metabase está caído. "
+               f"Detalle: {s.text[:120] or 'respuesta vacía'}")
+        enviar_slack(msg)
+        sys.exit("ERROR: login a Metabase falló (respuesta no-JSON o sin token).")
     # /query/json devuelve TODAS las filas (sin el tope de 2000 de /query)
     q = requests.post(f"{url}/api/card/{card}/query/json",
                       headers={"X-Metabase-Session": token}, json={}, timeout=300)
-    rows = q.json()
+    try:
+        rows = q.json()
+    except ValueError:
+        enviar_slack(f":x: *Buy Box ML* — Metabase respondió algo inesperado al correr la card {card} (HTTP {q.status_code}).")
+        sys.exit("ERROR: la card no devolvió JSON.")
     if not isinstance(rows, list):
         sys.exit(f"ERROR: respuesta inesperada de Metabase: {str(rows)[:200]}")
     print(f"Metabase card {card}: {len(rows)} filas")
