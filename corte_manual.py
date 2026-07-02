@@ -74,8 +74,11 @@ df[sku_col] = df[sku_col].astype(str).str.strip()
 df[dep_col] = df[dep_col].astype(str).str.strip()
 df = df[df[ent_col].astype(str).str.strip() != "Mercado Envíos Full"]
 df = df[df[est_col].astype(str).str.strip() == "Etiqueta lista para imprimir"]
+# Fix: excluir órdenes cuya colecta es mañana — solo queremos las de hoy
+desc_col = [c for c in df.columns if "descripci" in str(c).lower()][0]
+df = df[~df[desc_col].astype(str).str.contains("mañana", na=False)]
 df["cedis_ml"] = df[dep_col].map(DEPOSITO_A_CEDIS).fillna("Desconocido")
-print(f"ML: {len(df)} ordenes etiqueta lista")
+print(f"ML: {len(df)} ordenes etiqueta lista (solo hoy)")
 
 hora = datetime.now().strftime("%d/%m/%Y %H:%M")
 ids_snapshot = []
@@ -90,7 +93,7 @@ for cedis, menciones in CEDIS_CONFIG:
         v = vitau_by_id.get(oid, {})
         if not v:
             cands = vitau_by_ean.get(row[sku_col], [])
-            if cands: v = cands[0]
+            if cands: v = cands.pop(0)  # Fix: consumir el candidato para que el siguiente no reutilice el mismo orden
         st = STATUS_ES.get(v.get("status", ""), "Sin match")
         orden_num = v.get("orden")
         orden_str = f"Orden *{orden_num}*" if orden_num else f"`{oid}`"
