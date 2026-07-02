@@ -57,6 +57,10 @@ def get_ml_orders():
         df["Forma de entrega"] = df["Forma de entrega"].astype(str).str.strip()
         df = df[df["Forma de entrega"] != "Mercado Envíos Full"]
         df = df[df["Estado"] == "Etiqueta lista para imprimir"]
+        # Fix: excluir órdenes cuya colecta es mañana — solo queremos las de hoy
+        desc_col = "Descripción del estado" if "Descripción del estado" in df.columns else "Descripcion del estado"
+        if desc_col in df.columns:
+            df = df[~df[desc_col].astype(str).str.contains("mañana", na=False)]
         df["cedis_ml"] = df[dep_col].map(DEPOSITO_A_CEDIS).fillna("Desconocido")
         df["fecha_ml"] = pd.to_datetime(df["Fecha de venta"], dayfirst=True, errors="coerce")
         orders = df[["# de venta","SKU","cedis_ml","fecha_ml"]].rename(columns={"# de venta":"id","SKU":"sku"}).to_dict("records")
@@ -84,6 +88,7 @@ def cruzar(ml_orders, vitau_orders):
             vitau_by_ean[ean] = []
         vitau_by_ean[ean].append(o)
 
+    vitau_used = set()  # Fix: rastrear órdenes de Vitau ya asignadas para no reutilizarlas
     result = []
     discrepancias = []
 
@@ -92,7 +97,8 @@ def cruzar(ml_orders, vitau_orders):
         match_method = "ID"
 
         if not v:
-            cands = vitau_by_ean.get(ml.get("sku",""),[])
+            # Fix: excluir candidatos ya usados en matches anteriores
+            cands = [c for c in vitau_by_ean.get(ml.get("sku",""),[]) if id(c) not in vitau_used]
             if cands:
                 ml_dt = ml.get("fecha_ml")
                 mejor = None
@@ -117,6 +123,7 @@ def cruzar(ml_orders, vitau_orders):
                     match_method = "SKU"
 
         if v:
+            vitau_used.add(id(v))  # Fix: marcar como usado para que no se reutilice
             cedis_vitau = v.get("CEDIS","")
             cedis_ml = ml.get("cedis_ml","")
             if cedis_ml in DEPOSITO_A_CEDIS.values() and cedis_vitau != cedis_ml:
