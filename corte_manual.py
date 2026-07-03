@@ -1,7 +1,7 @@
 import json, requests, glob, os, pandas as pd
 from datetime import datetime, date
 
-SLACK_TOKEN = os.environ["SLACK_TOKEN"]
+SLACK_TOKEN = os.environ["SLACK_TOKEN1"]
 CANAL = "C040H7TV6JG"
 CANAL_ALERTAS = "C05UH4BFCC8"
 METABASE_URL = "https://analytics.vitau.mx"
