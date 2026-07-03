@@ -28,5 +28,5 @@ jobs:
 
       - name: Correr VitauBot
         env:
-          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_TOKEN1: ${{ secrets.SLACK_TOKEN1 }}
         run: python corte_manual.py
