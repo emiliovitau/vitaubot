@@ -27,4 +27,9 @@ jobs:
         run: python download_ml.py
 
       - name: Correr VitauBot
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          METABASE_URL: ${{ secrets.METABASE_URL }}
+          METABASE_USER: ${{ secrets.METABASE_USER }}
+          METABASE_PASS: ${{ secrets.METABASE_PASS }}
         run: python corte_manual.py
