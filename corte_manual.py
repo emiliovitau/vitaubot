@@ -27,7 +27,7 @@ def slack_post(canal, texto):
     r = requests.post("https://slack.com/api/chat.postMessage",
                       headers={"Authorization": f"Bearer {SLACK_TOKEN}"},
                       json={"channel": canal, "text": texto, "mrkdwn": True})
-    print(f"Slack {canal}: {r.json().get('ok')}")
+    print(f"Slack {canal}: {r.json()}")  # imprime todo, no solo 'ok'
 
 # Metabase
 r = requests.post(f"{METABASE_URL}/api/session", json={"username": METABASE_USER, "password": METABASE_PASS})
