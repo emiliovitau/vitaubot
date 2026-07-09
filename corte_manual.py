@@ -14,7 +14,7 @@ BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
 CARPETA_ML    = os.path.join(BASE_DIR, "archivos")
 SNAPSHOT_FILE = os.path.join(BASE_DIR, "snapshot.json")
 
-MENCIONES_MTY   = "<@U0BCHRV30CD> <@U06GNMKAL2Z> <@U0467HCL5AP>"
+MENCIONES_MTY   = "<@U0BCHRV30CD> <@U06GNMKAL2Z> <@U0467HCL5AP>"  # Juan Diego reemplaza a Ivan
 MENCIONES_CDMX  = "<@U08QT8JRRG9> <@U0467HCL5AP>"
 MENCIONES_DEMSA = "<@U055FRNF1CP> <@U0467HCL5AP>"
 MENCIONES_ALERTAS = "<@U0404PD44AZ>"
@@ -90,8 +90,8 @@ df = pd.read_excel(archivo, sheet_name="Ventas MX", header=_find_ml_header_row(a
 # Detección robusta de columnas — primero por nombre exacto, fallback por substring
 id_col   = _get_col(df, exact="# de venta")
 sku_col  = _get_col(df, exact="SKU")
-dep_col  = _get_col(df, exact="Depósito",              contains="dep")
-ent_col  = _get_col(df, exact="Forma de entrega",      contains="forma de entrega")
+dep_col  = _get_col(df, exact="Depósito",               contains="dep")
+ent_col  = _get_col(df, exact="Forma de entrega",       contains="forma de entrega")
 est_col  = _get_col(df, exact="Estado")
 desc_col = _get_col(df, exact="Descripción del estado", contains="descripci")
 
